@@ -10,10 +10,9 @@ import threading
 import time
 import traceback
 from contextlib import redirect_stdout
-from typing import Any
 
 import bpy
-from bpy.props import IntProperty
+from bpy.props import PointerProperty, StringProperty
 
 bl_info = {
     "name": "Blender MCP",
@@ -31,12 +30,28 @@ src_dir = os.path.join(os.path.dirname(addon_dir), "src")
 if src_dir not in sys.path:
     sys.path.insert(0, src_dir)
 
+# Default scripts root directory path
+# This is the fallback path used when no custom path is configured in Blender properties
+DEFAULT_SCRIPTS_ROOT = r"D:\data_files\mcps\blender-mcp-simplify\scripts"
+
 # Global variables for server management
 _server_instance = None
 _monitor_timer_running = False
 _last_restart_time = 0
 _restart_count = 0
 _max_restarts_per_hour = 10
+
+
+class BlenderMCPProperties(bpy.types.PropertyGroup):
+    """Property group for BlenderMCP settings"""
+
+    scripts_root = StringProperty(
+        name="Scripts Root Directory",
+        description="Root directory path for MCP scripts",
+        default=DEFAULT_SCRIPTS_ROOT,
+        subtype="DIR_PATH",
+        maxlen=1024,
+    )
 
 
 class BlenderMCPServer:
@@ -63,6 +78,23 @@ class BlenderMCPServer:
         # Execution queue for main thread operations
         self._execution_queue = queue.Queue()
         self._queue_processor_registered = False
+
+    def get_scripts_root(self):
+        """Get the configured scripts root directory"""
+        try:
+            # Try to get from scene properties first
+            if hasattr(bpy.context, "scene") and hasattr(
+                bpy.context.scene,
+                "blender_mcp",
+            ):
+                scripts_root = bpy.context.scene.blender_mcp.scripts_root
+                if scripts_root and scripts_root.strip():
+                    return scripts_root.strip()
+        except (AttributeError, RuntimeError):
+            pass
+
+        # Fallback to default path
+        return DEFAULT_SCRIPTS_ROOT
 
     def start(self):
         if self.running:
@@ -449,8 +481,13 @@ class BlenderMCPServer:
                     # Send response back to client
                     try:
                         result = result_container["result"]
-                        response_json = json.dumps(result)
-                        client.sendall(response_json.encode("utf-8"))
+                        # 使用ensure_ascii=False确保正确处理Unicode字符，并添加处理错误的选项
+                        response_json = json.dumps(
+                            result,
+                            ensure_ascii=False,
+                            default=str,
+                        )
+                        client.sendall(response_json.encode("utf-8", errors="replace"))
                         self.total_commands_processed += 1
                     except (
                         ConnectionResetError,
@@ -524,13 +561,6 @@ class BlenderMCPServer:
         command_type = command.get("type")
         params = command.get("params", {})
 
-        if command_type == "heartbeat":
-            return {
-                "status": "success",
-                "message": "heartbeat_response",
-                "timestamp": time.time(),
-            }
-
         if command_type == "get_scene_info":
             return {
                 "status": "success",
@@ -560,14 +590,6 @@ class BlenderMCPServer:
                 scripts_directory,
                 script_parameters,
             )
-            return {
-                "status": "success",
-                "data": result,
-            }
-
-        if command_type == "list_available_scripts":
-            scripts_directory = params.get("scripts_directory", "scripts")
-            result = self.list_available_scripts(scripts_directory)
             return {
                 "status": "success",
                 "data": result,
@@ -745,18 +767,19 @@ class BlenderMCPServer:
             if not script_name.endswith(".py"):
                 script_name += ".py"
 
-            # Try to find the scripts directory
-            addon_dir = os.path.dirname(os.path.realpath(__file__))
-            workspace_root = os.path.dirname(addon_dir)
-            script_path = os.path.join(workspace_root, scripts_directory, script_name)
+            # Get configured scripts root directory
+            scripts_root = self.get_scripts_root()
+            if scripts_directory == "scripts":
+                script_path = os.path.join(scripts_root, script_name)
+            else:
+                script_path = os.path.join(scripts_root, scripts_directory, script_name)
 
             print(f"Looking for script at: {script_path}")
 
             # Check if script exists
             if not os.path.exists(script_path):
-                available_scripts = self.list_available_scripts(scripts_directory)
                 raise Exception(
-                    f"Script '{script_name}' not found in '{scripts_directory}' directory. Available scripts: {[s['name'] for s in available_scripts.get('scripts', [])]}",
+                    f"Script '{script_name}' not found at '{script_path}'. Please check the script name and scripts root directory configuration.",
                 )
 
             # Read script content
@@ -821,7 +844,19 @@ class BlenderMCPServer:
                 # 执行脚本
                 exec(script_content, namespace)
 
+                # 检查脚本是否定义了main函数并调用它
+                if "main" in namespace and callable(namespace["main"]):
+                    print("[MCP_SCRIPT_EXEC] 检测到main函数，正在调用...")
+                    namespace["main"]()
+                    print("[MCP_SCRIPT_EXEC] main函数执行完成")
+                else:
+                    print("[MCP_SCRIPT_EXEC] 未检测到main函数或已在全局执行")
+
                 # 强制刷新 Blender UI和场景
+                self._comprehensive_ui_refresh()
+
+                # 对于复杂场景，等待短暂时间后再次刷新
+                time.sleep(0.5)
                 self._comprehensive_ui_refresh()
 
                 print("[MCP_SCRIPT_EXEC] 执行完成 - 更新后状态")
@@ -843,14 +878,25 @@ class BlenderMCPServer:
             if captured_errors:
                 full_output += f"\n--- Errors ---\n{captured_errors}"
 
+            # 处理字符串中的非ASCII字符，避免JSON编码问题
+            def sanitize_string(s):
+                if not isinstance(s, str):
+                    return s
+                # 替换可能导致JSON解析问题的字符
+                return s.encode("utf-8", errors="replace").decode("utf-8")
+
+            # 清理输出字符串
+            sanitized_output = sanitize_string(full_output)
+            sanitized_errors = sanitize_string(captured_errors)
+
             result = {
                 "executed": True,
                 "script_name": script_name,
                 "script_path": script_path,
                 "parameters": parameters,
-                "result": full_output,
+                "result": sanitized_output,
                 "file_size": len(script_content),
-                "errors": captured_errors,
+                "errors": sanitized_errors,
                 "success": True,
             }
 
@@ -862,81 +908,6 @@ class BlenderMCPServer:
             print(error_msg)
             print(f"Traceback: {traceback.format_exc()}")
             raise Exception(error_msg)
-
-    def list_available_scripts(self, scripts_directory="scripts"):
-        """List all available Python scripts in the scripts directory"""
-        try:
-            import os
-
-            scripts = []
-
-            # Try to find the scripts directory
-            addon_dir = os.path.dirname(os.path.realpath(__file__))
-            workspace_root = os.path.dirname(addon_dir)
-            scripts_path = os.path.join(workspace_root, scripts_directory)
-
-            if not os.path.exists(scripts_path):
-                return {
-                    "scripts_directory": scripts_directory,
-                    "scripts": [],
-                    "total_count": 0,
-                    "error": f"Scripts directory '{scripts_directory}' not found at {scripts_path}",
-                }
-
-            for filename in os.listdir(scripts_path):
-                if filename.endswith(".py") and not filename.startswith("_"):
-                    file_path = os.path.join(scripts_path, filename)
-                    file_stat = os.stat(file_path)
-
-                    # Read first few lines for description
-                    description = "No description available"
-                    try:
-                        with open(file_path, encoding="utf-8") as f:
-                            lines = f.readlines()[:10]  # Read first 10 lines
-                            for line in lines:
-                                line = line.strip()
-                                if line.startswith('"""') or line.startswith("'''"):
-                                    # Found docstring
-                                    if line.count('"""') == 2 or line.count("'''") == 2:
-                                        description = (
-                                            line.strip('"""').strip("'''").strip()
-                                        )
-                                    else:
-                                        # Multi-line docstring
-                                        description = (
-                                            line.strip('"""').strip("'''").strip()
-                                        )
-                                        for next_line in lines[lines.index(line) + 1 :]:
-                                            if '"""' in next_line or "'''" in next_line:
-                                                break
-                                            description += " " + next_line.strip()
-                                    break
-                                if line.startswith("#"):
-                                    description = line.lstrip("#").strip()
-                                    break
-                    except:
-                        pass
-
-                    scripts.append(
-                        {
-                            "name": filename,
-                            "size": file_stat.st_size,
-                            "modified": file_stat.st_mtime,
-                            "path": file_path,
-                            "description": description[:200] + "..."
-                            if len(description) > 200
-                            else description,
-                        },
-                    )
-
-            return {
-                "scripts_directory": scripts_directory,
-                "scripts": sorted(scripts, key=lambda x: x["name"]),
-                "total_count": len(scripts),
-            }
-
-        except Exception as e:
-            raise Exception(f"Failed to list scripts: {e!s}")
 
 
 def start_server_if_needed():
@@ -1046,6 +1017,42 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
         layout = self.layout
         global _server_instance
 
+        # Configuration section
+        config_box = layout.box()
+        config_box.label(text="Configuration", icon="PREFERENCES")
+
+        # Scripts root directory setting
+        try:
+            if hasattr(context.scene, "blender_mcp") and hasattr(
+                context.scene.blender_mcp,
+                "scripts_root",
+            ):
+                config_box.prop(
+                    context.scene.blender_mcp,
+                    "scripts_root",
+                    text="Scripts Directory",
+                )
+                config_box.operator(
+                    "blendermcp.test_scripts_path",
+                    text="Test Path",
+                    icon="CHECKMARK",
+                )
+            else:
+                scripts_path = (
+                    DEFAULT_SCRIPTS_ROOT
+                    if not _server_instance
+                    else _server_instance.get_scripts_root()
+                )
+                config_box.label(text=f"Scripts: {scripts_path}", icon="INFO")
+                config_box.operator(
+                    "blendermcp.test_scripts_path",
+                    text="Test Path",
+                    icon="CHECKMARK",
+                )
+        except Exception as e:
+            config_box.label(text=f"Scripts: {DEFAULT_SCRIPTS_ROOT}", icon="ERROR")
+            config_box.label(text=f"Error: {str(e)[:40]}...", icon="ERROR")
+
         # Server status section
         box = layout.box()
         box.label(text="Server Status", icon="NETWORK_DRIVE")
@@ -1110,30 +1117,95 @@ class BLENDERMCP_OT_EmergencyStop(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class BLENDERMCP_OT_TestScriptsPath(bpy.types.Operator):
+    bl_idname = "blendermcp.test_scripts_path"
+    bl_label = "Test Scripts Path"
+    bl_description = "Test if the configured scripts path is valid"
+
+    def execute(self, context):
+        global _server_instance
+
+        if _server_instance:
+            scripts_root = _server_instance.get_scripts_root()
+        else:
+            # Fallback to getting from properties directly
+            try:
+                scripts_root = context.scene.blender_mcp.scripts_root
+            except (AttributeError, RuntimeError):
+                scripts_root = DEFAULT_SCRIPTS_ROOT
+
+        import os
+
+        if os.path.exists(scripts_root) and os.path.isdir(scripts_root):
+            # Count Python files
+            py_files = [
+                f
+                for f in os.listdir(scripts_root)
+                if f.endswith(".py") and not f.startswith("_")
+            ]
+            self.report(
+                {"INFO"},
+                f"Scripts path is valid! Found {len(py_files)} Python scripts",
+            )
+        else:
+            self.report(
+                {"ERROR"},
+                f"Scripts path is invalid or does not exist: {scripts_root}",
+            )
+
+        return {"FINISHED"}
+
+
 def register():
-    # Register UI classes
-    bpy.utils.register_class(BLENDERMCP_PT_Panel)
-    bpy.utils.register_class(BLENDERMCP_OT_RestartServer)
-    bpy.utils.register_class(BLENDERMCP_OT_EmergencyStop)
+    try:
+        # Register property group first
+        bpy.utils.register_class(BlenderMCPProperties)
+        # Add property group to scene
+        bpy.types.Scene.blender_mcp = PointerProperty(type=BlenderMCPProperties)
 
-    # Auto-start server and monitoring
-    start_server_if_needed()
-    start_monitoring()
+        # Then register UI classes
+        bpy.utils.register_class(BLENDERMCP_PT_Panel)
+        bpy.utils.register_class(BLENDERMCP_OT_RestartServer)
+        bpy.utils.register_class(BLENDERMCP_OT_EmergencyStop)
+        bpy.utils.register_class(BLENDERMCP_OT_TestScriptsPath)
 
-    print("BlenderMCP addon registered and started")
+        # Auto-start server and monitoring
+        start_server_if_needed()
+        start_monitoring()
+
+        print("BlenderMCP addon registered and started")
+    except Exception as e:
+        print(f"Error registering BlenderMCP addon: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 def unregister():
-    # Stop monitoring and server first
-    stop_monitoring()
-    stop_server()
+    try:
+        # Stop monitoring and server first
+        stop_monitoring()
+        stop_server()
 
-    # Unregister UI classes
-    bpy.utils.unregister_class(BLENDERMCP_OT_EmergencyStop)
-    bpy.utils.unregister_class(BLENDERMCP_OT_RestartServer)
-    bpy.utils.unregister_class(BLENDERMCP_PT_Panel)
+        # Unregister UI classes
+        bpy.utils.unregister_class(BLENDERMCP_OT_EmergencyStop)
+        bpy.utils.unregister_class(BLENDERMCP_OT_RestartServer)
+        bpy.utils.unregister_class(BLENDERMCP_OT_TestScriptsPath)
+        bpy.utils.unregister_class(BLENDERMCP_PT_Panel)
 
-    print("BlenderMCP addon unregistered")
+        # Remove property group from scene
+        if hasattr(bpy.types.Scene, "blender_mcp"):
+            del bpy.types.Scene.blender_mcp
+
+        # Unregister property group
+        bpy.utils.unregister_class(BlenderMCPProperties)
+
+        print("BlenderMCP addon unregistered")
+    except Exception as e:
+        print(f"Error unregistering BlenderMCP addon: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

@@ -5,23 +5,22 @@
 
 import math
 import random
+import sys
 
 import bpy
 
+# 添加默认脚本目录到sys.path，以便可以导入utils模块
+sys.path.append("D:\\data_files\\mcps\\blender-mcp-simplify\\scripts")
+
+# 导入工具模块并设置脚本路径
+import utils
+
+utils.setup_script_path()
+
 print("🚀 开始最终测试 - 创建多个高亮对象")
 
-# 1. 清理现有场景中的测试对象
-test_objects = []
-for obj in bpy.context.scene.objects:
-    if obj.name.startswith("FinalTest"):
-        test_objects.append(obj)
-
-if test_objects:
-    print(f"清理 {len(test_objects)} 个现有测试对象")
-    bpy.ops.object.select_all(action="DESELECT")
-    for obj in test_objects:
-        obj.select_set(True)
-    bpy.ops.object.delete()
+# 1. 清理现有场景
+utils.clear_scene(verbose=True)
 
 
 # 2. 创建多个明显的测试对象

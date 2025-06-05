@@ -6,35 +6,18 @@
 """
 
 import math
+import sys
 
 import bpy
 from mathutils import Vector
 
+# 添加默认脚本目录到sys.path，以便可以导入utils模块
+sys.path.append("D:\\data_files\\mcps\\blender-mcp-simplify\\scripts")
 
-def clear_scene():
-    """清理默认场景"""
-    # 切换到OBJECT模式
-    if bpy.context.active_object and bpy.context.active_object.mode != "OBJECT":
-        bpy.ops.object.mode_set(mode="OBJECT")
+# 导入工具模块并设置脚本路径
+import utils
 
-    # 删除所有对象
-    bpy.ops.object.select_all(action="SELECT")
-    bpy.ops.object.delete(use_global=False)
-
-    # 清理未使用的数据块
-    for block in bpy.data.meshes:
-        if block.users == 0:
-            bpy.data.meshes.remove(block)
-
-    for block in bpy.data.materials:
-        if block.users == 0:
-            bpy.data.materials.remove(block)
-
-    for block in bpy.data.textures:
-        if block.users == 0:
-            bpy.data.textures.remove(block)
-
-    print("✅ 场景已清理")
+utils.setup_script_path()
 
 
 def create_ground_plane():
@@ -171,7 +154,11 @@ def create_advanced_materials():
     blue_glass.node_tree.links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
 
     bsdf.inputs["Base Color"].default_value = (0.1, 0.3, 1.0, 1.0)
-    bsdf.inputs["Transmission"].default_value = 0.95
+    # 检查Transmission参数
+    if "Transmission" in bsdf.inputs:
+        bsdf.inputs["Transmission"].default_value = 0.95
+    elif "Transmission Weight" in bsdf.inputs:
+        bsdf.inputs["Transmission Weight"].default_value = 0.95
     bsdf.inputs["Roughness"].default_value = 0.0
     bsdf.inputs["IOR"].default_value = 1.52
     materials.append(blue_glass)
@@ -205,7 +192,8 @@ def create_advanced_materials():
 
     bsdf.inputs["Base Color"].default_value = (1.0, 0.8, 0.1, 1.0)
     bsdf.inputs["Roughness"].default_value = 0.7
-    bsdf.inputs["Sheen"].default_value = 0.2
+    # 兼容性处理：完全移除Sheen相关设置，避免版本兼容性问题
+    # Blender不同版本对Sheen属性的处理方式不同
     materials.append(yellow_plastic)
 
     # 5. 紫色金属材质
@@ -281,7 +269,11 @@ def create_advanced_materials():
     cyan_glass.node_tree.links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
 
     bsdf.inputs["Base Color"].default_value = (0.1, 0.8, 0.8, 1.0)
-    bsdf.inputs["Transmission"].default_value = 0.9
+    # 检查Transmission参数
+    if "Transmission" in bsdf.inputs:
+        bsdf.inputs["Transmission"].default_value = 0.9
+    elif "Transmission Weight" in bsdf.inputs:
+        bsdf.inputs["Transmission Weight"].default_value = 0.9
     bsdf.inputs["Roughness"].default_value = 0.1
     bsdf.inputs["IOR"].default_value = 1.33
     materials.append(cyan_glass)
@@ -699,7 +691,7 @@ def main():
 
     try:
         # 1. 清理并准备场景
-        clear_scene()
+        utils.clear_scene()
 
         # 2. 创建地面
         ground = create_ground_plane()
@@ -755,9 +747,4 @@ def main():
         return False
 
 
-if __name__ == "__main__":
-    success = main()
-    if success:
-        print("\n🎉 blender-mcp测试完成 - 所有功能正常工作！")
-    else:
-        print("\n💥 测试失败 - 请检查错误信息")
+main()

@@ -5,9 +5,18 @@ Blender动画场景创建脚本
 """
 
 import math
+import sys
 
 import bpy
 from mathutils import Vector
+
+# 添加默认脚本目录到sys.path，以便可以导入utils模块
+sys.path.append("D:\\data_files\\mcps\\blender-mcp-simplify\\scripts")
+
+# 导入工具模块并设置脚本路径
+import utils
+
+utils.setup_script_path()
 
 
 def clear_scene():
@@ -472,5 +481,4 @@ def main():
     print("按F12渲染当前帧")
 
 
-if __name__ == "__main__":
-    main()
+main()

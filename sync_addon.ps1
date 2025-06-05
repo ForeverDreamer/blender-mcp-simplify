@@ -1,5 +1,5 @@
 # Blender MCP 插件同步脚本
-# 将 src 和 addon 目录的文件同步到 Blender 插件目录
+# 将 addon/__init__.py 和 scripts/utils.py 同步到 Blender 插件目录
 
 param(
     [string]$BlenderPluginPath = "C:\Users\doer\AppData\Roaming\Blender Foundation\Blender\4.4\scripts\addons\blender-mcp"
@@ -10,24 +10,29 @@ $ErrorActionPreference = 'Stop'
 
 # 获取当前脚本目录的绝对路径
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$SrcDir = Join-Path $ScriptDir "src"
 $AddonDir = Join-Path $ScriptDir "addon"
+$InitPyFile = Join-Path $AddonDir "__init__.py"
+$ScriptsDir = Join-Path $ScriptDir "scripts"
+$UtilsFile = Join-Path $ScriptsDir "utils.py"
 
 Write-Host "🔄 开始同步 Blender MCP 插件文件..." -ForegroundColor Green
 
 try {
-    # 验证源目录是否存在
-    if (!(Test-Path $SrcDir)) {
-        throw "源目录不存在: $SrcDir"
-    }
-    
     if (!(Test-Path $AddonDir)) {
         throw "插件目录不存在: $AddonDir"
     }
     
-    Write-Host "📁 源目录验证完成" -ForegroundColor Yellow
-    Write-Host "   - src: $SrcDir"
-    Write-Host "   - addon: $AddonDir"
+    if (!(Test-Path $InitPyFile)) {
+        throw "插件初始化文件不存在: $InitPyFile"
+    }
+    
+    if (!(Test-Path $UtilsFile)) {
+        throw "工具模块不存在: $UtilsFile"
+    }
+    
+    Write-Host "📁 源文件验证完成" -ForegroundColor Yellow
+    Write-Host "   - 插件初始化文件: $InitPyFile"
+    Write-Host "   - 工具模块: $UtilsFile"
     
     # 创建目标目录（如果不存在）
     if (!(Test-Path $BlenderPluginPath)) {
@@ -35,13 +40,13 @@ try {
         New-Item -ItemType Directory -Path $BlenderPluginPath -Force | Out-Null
     }
     
-    # 复制 src 目录的所有文件
-    Write-Host "📋 复制 src 目录文件..." -ForegroundColor Cyan
-    Copy-Item -Path "$SrcDir\*" -Destination $BlenderPluginPath -Recurse -Force
+    # 复制 __init__.py 文件
+    Write-Host "📋 复制 addon/__init__.py 文件..." -ForegroundColor Cyan
+    Copy-Item -Path $InitPyFile -Destination $BlenderPluginPath -Force
     
-    # 复制 addon 目录的所有文件
-    Write-Host "📋 复制 addon 目录文件..." -ForegroundColor Cyan
-    Copy-Item -Path "$AddonDir\*" -Destination $BlenderPluginPath -Recurse -Force
+    # 复制 utils.py 文件
+    Write-Host "📋 复制 utils.py 到插件目录..." -ForegroundColor Cyan
+    Copy-Item -Path $UtilsFile -Destination $BlenderPluginPath -Force
     
     Write-Host "✅ 同步完成！所有文件已复制到: $BlenderPluginPath" -ForegroundColor Green
     

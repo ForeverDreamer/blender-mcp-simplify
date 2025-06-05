@@ -5,10 +5,62 @@ Provides standardized response formats and basic validation functions.
 Simplified for CodeAct paradigm following MCP 2024 best practices.
 """
 
+import json
+import logging
+import socket
 import time
 import traceback
 from collections.abc import Callable
 from typing import Any
+
+from dataclasses import dataclass
+
+
+@dataclass
+class BlenderConnection:
+    """Configuration for Blender socket connection."""
+
+    host: str
+    port: int
+    timeout: float
+
+
+logger = logging.getLogger(__name__)
+
+
+def send_command(
+    command: dict[str, Any],
+    connection: BlenderConnection,
+) -> dict[str, Any]:
+    """
+    通过 socket 连接向 Blender 发送命令。
+
+    Args:
+        command: 要发送的命令字典
+        connection: Blender连接配置
+
+    Returns:
+        Blender服务器的响应字典
+
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(connection.timeout)
+            sock.connect((connection.host, connection.port))
+
+            # 发送命令
+            command_json = json.dumps(command)
+            sock.sendall(command_json.encode("utf-8"))
+
+            # 接收响应
+            response = sock.recv(4096).decode("utf-8")
+            result = json.loads(response)
+
+            return result
+
+    except Exception as e:
+        logger.error(f"Blender 连接失败: {e}")
+        return {"success": False, "error": str(e)}
 
 
 def create_standard_response(
