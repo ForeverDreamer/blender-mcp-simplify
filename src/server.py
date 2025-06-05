@@ -9,6 +9,9 @@ import logging
 
 from mcp.server.fastmcp import FastMCP
 
+from .prompts import register_prompts
+from .resources import register_resources
+
 # Import modular MCP tools
 from .tools.all_tools import register_all_tools
 
@@ -28,11 +31,38 @@ class BlenderMCPServer:
     """
 
     def __init__(self):
-        # Initialize FastMCP app
-        self.app = FastMCP("Blender MCP Server")
+        # Initialize FastMCP app with detailed instructions
+        self.app = FastMCP(
+            name="Blender MCP Server",
+            instructions="""
+            这是一个用于Blender的MCP服务器，提供以下功能：
+            
+            1. 执行Blender Python代码 - 使用execute_blender_code工具可以运行任意Python代码
+            2. 执行预定义脚本 - 使用execute_blender_script_file可以运行服务器上的脚本文件
+            3. 获取场景信息 - 使用get_blender_scene_info可以获取当前场景的详细信息
+            4. 获取服务器状态 - 使用get_blender_server_status可以检查服务器状态
+            5. PolyHaven资源集成 - 搜索和下载高质量的3D资源
+            
+            此外，服务器还提供了一系列预定义的资源模板和提示模板，可以帮助您更高效地使用Blender进行建模、渲染和动画制作。
+            
+            使用resources://list可以查看所有可用的资源
+            使用prompts://list可以查看所有可用的提示模板
+            """,
+        )
 
         # Register all MCP tools
         self._register_tools()
+
+        # 直接注册资源和提示
+        try:
+            register_resources(self.app)
+            logger.info("成功注册资源模块")
+
+            register_prompts(self.app)
+            logger.info("成功注册提示模块")
+        except Exception as e:
+            logger.error(f"注册资源或提示模块失败: {e}")
+            raise
 
         logger.info("Simplified Blender MCP Server initialized successfully")
 

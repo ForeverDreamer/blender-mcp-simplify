@@ -154,7 +154,6 @@ def execute_script_file(
             error=f"Failed to execute script '{script_name}': {e!s}",
             data={
                 "script_name": script_name,
-                "scripts_directory": scripts_directory,
                 "error_type": type(e).__name__,
             },
         )
@@ -251,8 +250,82 @@ def register_code_tools(app: FastMCP) -> None:
         """
         Execute Python code in Blender context.
 
+        该工具允许您执行任意Python代码直接在Blender中运行，提供完全的灵活性来创建、修改和操作3D对象、材质、动画和渲染设置。
+        代码在Blender的Python解释器中执行，可访问完整的Blender Python API (bpy)。
+
         Args:
-            code: Python code to execute in Blender
+            code: 要在Blender中执行的Python代码。可以包含多行代码，用于创建对象、修改材质、设置动画关键帧等。
+
+        Returns:
+            一个JSON字符串，包含执行结果、输出、错误信息（如果有）和执行时间。
+
+        Examples:
+            基本操作:
+            ```python
+            # 创建一个简单的立方体
+            execute_blender_code(ctx, '''
+            import bpy
+
+            # 创建一个立方体
+            bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0))
+
+            # 给立方体命名
+            cube = bpy.context.active_object
+            cube.name = "MyCube"
+            ''')
+            ```
+
+            材质操作:
+            ```python
+            # 为对象添加红色材质
+            execute_blender_code(ctx, '''
+            import bpy
+
+            # 选择目标对象（假设已存在名为"MyCube"的对象）
+            obj = bpy.data.objects.get("MyCube")
+            if obj:
+                # 创建新材质
+                mat = bpy.data.materials.new(name="RedMaterial")
+                mat.use_nodes = True
+
+                # 设置基础颜色为红色
+                principled_bsdf = mat.node_tree.nodes.get('Principled BSDF')
+                if principled_bsdf:
+                    principled_bsdf.inputs[0].default_value = (1.0, 0.0, 0.0, 1.0)
+
+                # 分配材质到对象
+                if obj.data.materials:
+                    obj.data.materials[0] = mat
+                else:
+                    obj.data.materials.append(mat)
+            ''')
+            ```
+
+            动画操作:
+            ```python
+            # 为对象创建简单的动画
+            execute_blender_code(ctx, '''
+            import bpy
+
+            # 选择对象
+            obj = bpy.data.objects.get("MyCube")
+            if obj:
+                # 设置场景帧范围
+                scene = bpy.context.scene
+                scene.frame_start = 1
+                scene.frame_end = 60
+
+                # 在第1帧设置关键帧
+                scene.frame_current = 1
+                obj.location = (0, 0, 0)
+                obj.keyframe_insert(data_path="location")
+
+                # 在第60帧设置关键帧
+                scene.frame_current = 60
+                obj.location = (0, 0, 5)
+                obj.keyframe_insert(data_path="location")
+            ''')
+            ```
 
         """
         result = execute_code(code)
@@ -267,9 +340,43 @@ def register_code_tools(app: FastMCP) -> None:
         """
         Execute a Python script file from the scripts directory in Blender.
 
+        该工具可以在Blender中执行预定义的Python脚本文件，允许运行更复杂的操作，而无需直接输入大量代码。
+        脚本文件应位于指定的scripts目录中，可以选择传递参数以影响脚本行为。
+
         Args:
-            script_name: Name of the script file (with or without .py extension)
-            parameters: Optional parameters to pass to the script
+            script_name: 脚本文件名称（可以带或不带.py扩展名）。例如："create_landscape.py"或"create_landscape"
+            parameters: 传递给脚本的可选参数字典。这些参数将作为全局变量在脚本中可用。
+
+        Returns:
+            一个JSON字符串，包含执行结果、输出、错误信息（如果有）和执行时间。
+
+        Examples:
+            基本用法:
+            ```python
+            # 执行create_landscape.py脚本
+            execute_blender_script_file(ctx, "create_landscape")
+            ```
+
+            带参数的用法:
+            ```python
+            # 执行create_character.py脚本并传递参数
+            execute_blender_script_file(ctx,
+                "create_character",
+                {
+                    "character_type": "warrior",
+                    "height": 1.8,
+                    "add_armor": True
+                }
+            )
+            ```
+
+            注意: 脚本中应包含适当的错误处理，并且应该在globals()命名空间中查找传递的参数:
+            ```python
+            # 脚本中访问参数的示例
+            character_type = globals().get("character_type", "default")
+            height = globals().get("height", 1.7)
+            add_armor = globals().get("add_armor", False)
+            ```
 
         """
         result = execute_script_file(script_name, parameters)
@@ -283,8 +390,43 @@ def register_code_tools(app: FastMCP) -> None:
         """
         List all available Python scripts in the specified directory.
 
+        该工具会列出指定目录中所有可用的Python脚本文件，包括它们的名称、描述、大小和修改时间。
+        这对于了解可用的脚本以及选择要执行的脚本非常有用。
+
         Args:
-            scripts_directory: Directory to search for scripts (default: "scripts")
+            scripts_directory: 要搜索脚本的目录（默认为"scripts"）。可以是相对于工作目录的路径或绝对路径。
+
+        Returns:
+            一个JSON字符串，包含可用脚本的列表及其元数据。
+
+        Examples:
+            列出默认目录中的脚本:
+            ```python
+            # 获取默认scripts目录中的所有脚本
+            scripts = list_blender_scripts(ctx)
+            ```
+
+            列出自定义目录中的脚本:
+            ```python
+            # 获取自定义目录中的所有脚本
+            scripts = list_blender_scripts(ctx, "D:\\my_blender_scripts")
+            ```
+
+            使用脚本列表结果:
+            ```python
+            # 获取脚本列表并分析结果
+            import json
+
+            result = list_blender_scripts(ctx)
+            scripts_data = json.loads(result)
+
+            if scripts_data["success"]:
+                scripts = scripts_data["data"]["scripts"]
+                print(f"找到 {len(scripts)} 个脚本:")
+
+                for script in scripts:
+                    print(f"- {script['name']}: {script['description']}")
+            ```
 
         """
         result = list_available_scripts(scripts_directory)

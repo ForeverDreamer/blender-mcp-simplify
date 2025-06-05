@@ -144,6 +144,26 @@ def register_base_tools(app: FastMCP) -> None:
         获取当前 Blender 场景信息。
 
         返回有关当前 Blender 场景的详细信息，包括对象、材质和渲染设置。
+        这对于了解场景状态、诊断问题或计划下一步操作非常有用。
+
+        返回信息包括:
+        - 场景中的对象列表（名称、类型、位置、旋转、缩放）
+        - 材质库（名称、类型、属性）
+        - 灯光设置（类型、强度、颜色）
+        - 渲染设置（引擎类型、分辨率、采样数）
+        - 相机设置（位置、焦距、视野）
+        - 活动对象和选择状态
+
+        Returns:
+            场景信息的JSON字符串
+
+        Example:
+            ```python
+            # 获取当前场景信息
+            scene_info = get_blender_scene_info(ctx)
+            print(f"场景中有 {len(scene_info['objects'])} 个对象")
+            ```
+
         """
         result = get_scene_info()
         return json.dumps(result, indent=2)
@@ -155,7 +175,28 @@ def register_base_tools(app: FastMCP) -> None:
         """
         获取 Blender 服务器状态。
 
-        返回有关 Blender 服务器状态的详细信息，包括运行时间、连接统计和性能指标。
+        返回有关 Blender 服务器的详细状态信息，包括运行时间、连接统计和性能指标。
+        这对于监控服务器健康状况、诊断连接问题或了解服务器负载非常有用。
+
+        返回信息包括:
+        - 服务器运行时间
+        - 处理的命令总数
+        - 活动连接数和历史连接总数
+        - 最后连接时间
+        - 服务器版本和配置信息
+        - 系统资源使用情况
+        - 可能的错误或警告消息
+
+        Returns:
+            服务器状态的JSON字符串
+
+        Example:
+            ```python
+            # 检查服务器状态
+            status = get_blender_server_status(ctx)
+            print(f"服务器已运行: {status['uptime_hours']} 小时")
+            ```
+
         """
         result = get_server_status()
         return json.dumps(result, indent=2)
