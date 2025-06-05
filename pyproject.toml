@@ -1,0 +1,71 @@
+[project]
+name = "blender-mcp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # 核心运行时依赖
+    "bpy>=4.4.0",
+    "fake-bpy-module-latest>=20250522",
+    "mcp[cli]>=1.9.2",
+    "numpy<2.0",
+]
+
+[project.optional-dependencies]
+# 开发工具
+dev = [
+    "mypy>=1.0.0",
+    "pylint>=2.17.0", 
+    "ruff>=0.0.270",
+]
+
+# 测试工具
+test = [
+    "pytest>=7.3.1",
+    "pytest-cov>=4.1.0",
+]
+
+# 类型注解
+types = [
+    "types-pyyaml>=6.0.12.20250402",
+    "types-requests>=2.32.0.20250328",
+    "types-setuptools>=79.0.0.20250422",
+]
+
+# 调试工具
+debug = [
+    "debugpy>=1.8.14",
+]
+
+# Jupyter 开发环境
+jupyter = [
+    "docstring-parser>=0.15",
+    "ipykernel>=6.23.0",
+    "jupyter>=1.0.0",
+]
+
+# 完整开发环境（包含所有可选依赖）
+all = [
+    "blender-mcp[dev,test,types,debug,jupyter]",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+# 选择所有规则，然后忽略特定规则
+select = ["ALL"]
+ignore = [
+    "ANN001", "ANN201", "C901", 
+    "D203", "D212", "D100", "D101", "D102", "D103", "D400", "D415", 
+    "G004", "PLR0912", "PLR0915", "PTH118", "PTH100", "PTH120", 
+    "RUF002", "RUF003", "S104", "TRY400",
+]
+
+[tool.pylint]
+# 只保留Ruff不覆盖的规则
+disable = [
+    "invalid-name",  # 由Ruff处理
+    "missing-docstring",  # 由Ruff处理
+    # 更多重叠规则...
+]

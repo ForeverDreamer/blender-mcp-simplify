@@ -1,0 +1,48 @@
+{
+  "version": "0.2.0",  // 配置文件的版本号，指示使用的调试器版本
+  "configurations": [  // 配置数组，包含多个调试配置
+      {
+        "name": "Python: 当前文件",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${file}",
+        "args": [],
+        "console": "integratedTerminal",
+        "justMyCode": false,
+        "purpose": ["debug-in-terminal"],
+        "envFile": "${workspaceFolder}\\.env",
+        "cwd": "${workspaceFolder}\\filesystem_mcp",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}\\filesystem_mcp",
+            "PYTHONASYNCIODEBUG": "1"
+        },
+        
+        "python": "${workspaceFolder}\\.venv\\Scripts\\python",
+        "stopOnEntry": false,
+        "showReturnValue": true,
+        "redirectOutput": true,
+        "django": false,
+        "subProcess": true,
+      },
+      {
+        "name": "Attach to Blender",
+        "type": "debugpy",
+        "request": "attach",
+        "connect": {
+            "host": "localhost",
+            "port": 5678
+        },
+        "pathMappings": [
+            {
+                "localRoot": "${workspaceFolder}",
+                "remoteRoot": "${workspaceFolder}"
+            }
+        ],
+        "justMyCode": false,
+        "redirectOutput": true,
+        "showReturnValue": true,
+        "subProcess": false
+      },
+  ],
+  "compounds": []  // 复合调试配置，当前为空，预留给未来可能的复合调试需求
+}

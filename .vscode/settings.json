@@ -1,0 +1,323 @@
+{
+  // Python后端配置
+  "python.analysis.extraPaths": [],
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  "python.terminal.activateEnvironment": true,
+  "terminal.integrated.defaultProfile.windows": "PowerShell 7 + venv",
+  "terminal.integrated.profiles.windows": {
+    "PowerShell 7 + venv": {
+      "path": "pwsh.exe",
+      "args": [
+        "-NoExit", 
+        "-Command", 
+        "Set-Location -Path '${workspaceFolder}';"
+      ],
+      "icon": "terminal-powershell"
+    },
+    "Command Prompt": {
+      "path": [
+        "${env:windir}\\Sysnative\\cmd.exe",
+        "${env:windir}\\System32\\cmd.exe"
+      ],
+      "args": [],
+      "icon": "terminal-cmd"
+    }
+  },
+  "terminal.integrated.fontFamily": "Cascadia Code PL, Consolas, 'Courier New', monospace",
+  "terminal.integrated.fontSize": 14,
+  "terminal.integrated.cursorBlinking": true,
+  "terminal.integrated.cursorStyle": "line",
+  "terminal.integrated.copyOnSelection": false,
+  "terminal.integrated.env.windows": {
+    "TERM": "xterm-256color"
+  },
+  "terminal.integrated.gpuAcceleration": "on",
+  "terminal.integrated.shellIntegration.enabled": true,
+  
+  // 安装 ms-python.mypy-type-checker 扩展
+  "mypy-type-checker.args": [
+    "--strict",                      // 启用严格类型检查
+    "--ignore-missing-imports",      // 忽略缺失的导入（适用于第三方库无类型注解）
+    "--follow-imports=silent",       // 静默处理导入，减少无关错误
+    "--show-column-numbers",         // 显示错误列号，便于定位
+    "--no-implicit-optional",        // 禁止隐式 Optional 类型
+    "--disallow-untyped-defs",       // 要求函数定义必须有类型注解
+    "--disallow-untyped-calls",      // 要求函数调用必须有类型注解
+    "--check-untyped-defs"           // 检查未注解函数的内部类型
+  ],
+  "mypy-type-checker.importStrategy": "fromEnvironment", // 使用环境中的 Mypy
+  "mypy-type-checker.reportingScope": "file",           // 默认只检查打开的文件
+  "mypy-type-checker.preferDaemon": true,               // 启用 dmypy 提高性能
+  
+// 代码质量控制配置 - 使用Ruff作为主要工具
+  // Ruff配置 - 现代化Python代码质量工具（最新版本）
+  "ruff.enable": true,
+  "ruff.nativeServer": "on", // 使用原生Ruff服务器而不是弃用的ruff-lsp
+  "ruff.path": ["${workspaceFolder}/.ruff"],
+  "ruff.organizeImports": true,
+  "ruff.fixAll": true, // 替代ruff.lint.fixAll
+  "ruff.lineLength": 88, // 全局行长度设置
+  
+  // Python文件特定配置
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.codeActionsOnSave": {
+      "source.organizeImports.ruff": "always",
+      "source.fixAll.ruff": "always",
+      "source.fixAll": "always"
+    }
+  },
+  
+  // 前端代码质量工具 - 修改全局配置，移除organizeImports
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "always",
+    "source.fixAll.eslint": "always",
+    // 移除 "source.organizeImports": "always", 避免冲突
+    "source.addMissingImports": "always",
+    "source.removeUnused": "always"
+  },
+  
+  // 保留pylint仅用于深度静态分析，不作为主要格式化工具
+  "pylint.enabled": false,
+  "pylint.args": ["--max-line-length=88", "--disable=C0111"],
+  
+  // Python测试配置
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "backend/tests"
+  ],
+  
+  // Python语言服务器Pylance配置和分析
+  "python.languageServer": "Pylance",
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.indexing": true,
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportOptionalMemberAccess": "none",
+    "reportAttributeAccessIssue": "none",
+    "reportGeneralTypeIssues": "warning"
+  },
+  "python.analysis.inlayHints.functionReturnTypes": true,
+  "python.analysis.inlayHints.variableTypes": true,
+  "python.analysis.packageIndexDepths": [
+    {"name": "sklearn", "depth": 2},
+    {"name": "matplotlib", "depth": 2},
+    {"name": "scipy", "depth": 2},
+    {"name": "pandas", "depth": 2},
+    {"name": "numpy", "depth": 2}
+  ],
+
+  // Next.js前端配置
+  "typescript.tsdk": "frontend/app/node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "javascript.updateImportsOnFileMove.enabled": "always",
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "prettier.requireConfig": true,
+  "prettier.bracketSameLine": true,
+  "prettier.singleQuote": true,
+  "prettier.semi": true,
+  "prettier.trailingComma": "es5",
+
+  // 前端文件类型配置
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "always",
+      "source.removeUnused": "always"
+    }
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "always",
+      "source.removeUnused": "always"
+    }
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "always",
+      "source.removeUnused": "always",
+      "source.organizeImports": "always"
+    }
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "always",
+      "source.removeUnused": "always",
+      "source.organizeImports": "always"
+    }
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true
+  },
+  "[css]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true
+  },
+  
+  "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+  "eslint.workingDirectories": [
+    "./frontend/app",
+    "./frontend/admin"
+  ],
+  
+  // Tailwind CSS配置 - 2024最新优化
+  "tailwindCSS.includeLanguages": {
+    "typescript": "javascript",
+    "typescriptreact": "javascript",
+    "javascript": "javascript",
+    "javascriptreact": "javascript",
+    "html": "html"
+  },
+  "tailwindCSS.emmetCompletions": true,
+  "tailwindCSS.classAttributes": [
+    "class",
+    "className",
+    "ngClass",
+    "classList",
+    ".*Classes.*"
+  ],
+  "tailwindCSS.experimental.classRegex": [
+    ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
+    ["cn\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
+    ["clsx\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"]
+  ],
+  "files.associations": {
+    "*.css": "tailwindcss"
+  },
+  
+  // 智能提示优化
+  "editor.suggestSelection": "first",
+  "editor.inlineSuggest.enabled": true,
+  "editor.quickSuggestions": {
+    "strings": true
+  },
+  "editor.snippetSuggestions": "top",
+  "editor.tabSize": 2,
+  "editor.wordWrap": "on",
+  "editor.linkedEditing": true,
+  
+  // 代码折叠和美化
+  "editor.foldingStrategy": "indentation",
+  "editor.bracketPairColorization.enabled": true,
+  "editor.guides.bracketPairs": true,
+  "editor.guides.bracketPairsHorizontal": true,
+  "editor.guides.highlightActiveBracketPair": true,
+  "editor.hover.sticky": true,
+  
+  // Python文档字符串格式
+  "autoDocstring.docstringFormat": "google",
+  
+  // Jupyter配置优化
+  "jupyter.askForKernelRestart": false,
+  "jupyter.interactiveWindow.creationMode": "perFile",
+  "jupyter.interactiveWindow.textEditor.executeSelection": true,
+  "jupyter.widgetScriptSources": ["jsdelivr.com", "unpkg.com"],
+  "jupyter.showVariableViewWhenDebugging": true,
+  
+  // Git集成配置
+  "git.enableSmartCommit": true,
+  "git.autofetch": true,
+  "git.confirmSync": false,
+  "git.openRepositoryInParentFolders": "always",
+  "git.branchProtection": ["main", "master", "development"],
+  "git.branchPrefix": "feature/",
+  "git.pullBeforeCheckout": true,
+  
+  // 文件自动保存
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  
+  // 文件资源管理器忽略设置
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/*.pyc": true,
+    "**/.ruff_cache": true,
+    "**/.mypy_cache": true,
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/out": true,
+    "**/.coverage": true,
+    "**/.hypothesis": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true,
+    "**/.env.local": true,
+    "**/.env.development.local": true,
+    "**/.env.test.local": true,
+    "**/.env.production.local": true
+  },
+  
+  // 工作区路径配置
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/out": true,
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/.ruff_cache": true,
+    "**/.mypy_cache": true,
+    "**/build": true,
+    "**/dist": true,
+    "**/.git": true
+  },
+  
+  // 性能优化设置 - 2024新增
+  "editor.minimap.enabled": false,
+  "editor.renderWhitespace": "boundary",
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/__pycache__/**": true,
+    "**/.mypy_cache/**": true,
+    "**/.ruff_cache/**": true
+  },
+  "search.useIgnoreFiles": true,
+  "search.searchOnType": false,
+  "window.autoDetectColorScheme": true,
+  
+  // Debugging配置
+  "debug.internalConsoleOptions": "neverOpen",
+  "debugpy.debugJustMyCode": false,
+  
+  // 文件格式化配置
+  "[shellscript]": {
+    "editor.defaultFormatter": "foxundermoon.shell-format"
+  },
+  "[ignore]": {
+    "editor.defaultFormatter": "foxundermoon.shell-format"
+  },
+  "[dotenv]": {
+    "editor.defaultFormatter": "foxundermoon.shell-format"
+  },
+  // TypeScript更新 - 2024新增
+  "typescript.preferences.quoteStyle": "single",
+  "typescript.preferences.importModuleSpecifier": "shortest",
+  "[dockerfile]": {
+    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
+  },
+  "[properties]": {
+    "editor.defaultFormatter": "foxundermoon.shell-format"
+  }
+}

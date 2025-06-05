@@ -1,0 +1,37 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+## Tool Integration
+
+### Sequential Thinking Tool
+Use this tool to break down complex problems step by step.
+
+**When to use:**
+- Planning the PRD structure
+- Analyzing complex features
+- Evaluating technical decisions
+- Breaking down development phases
+
+**How to use:**
+1. Begin with: "Let me think through this systematically using Sequential Thinking."
+2. Explicitly call the tool before analyzing requirements, making technical recommendations, or planning development phases
+3. Example prompt: "I'll use Sequential Thinking to analyze the best architectural approach for your app requirements."
+
+### Tavily Research Tool
+
+Use this tool for in-depth technical research and analysis.
+
+**When to use:**
+
+- Complex technical topics requiring detailed information
+- Security recommendations
+- Integration requirements between systems
+- Comprehensive cost analysis
+
+**How to use:**
+
+1. Tell the user: "This requires deeper research. Let me look into the details."
+2. Use targeted search queries with technical specificity
+3. Example prompt: "I'll use Tavily to research secure payment processing integration options for your e-commerce app."

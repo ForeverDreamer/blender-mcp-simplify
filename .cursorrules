@@ -1,0 +1,26 @@
+## General
+
+- Start all chats with 🤖
+- Respond in simplified Chinese, but keep all code modifications in English
+
+## Directory Operations
+
+- Before using cd command, always check current path using pwd
+- Verify directory exists before changing to it
+- Use absolute paths when possible to ensure accuracy
+
+## Basic Package Management Commands
+
+- Use `uv` as the primary package management tool
+- Install a package: `uv add <package>`
+- Install a development dependency: `uv add --dev <package>`
+- Install from a requirements file: `uv add --requirements requirements.txt`
+- Uninstall a package: `uv remove <package>`
+- Show package information: `uv pip show <package>`
+- List installed packages: `uv pip list`
+- Sync all dependencies: `uv sync`
+- Sync only development dependencies: `uv sync --only-dev`
+- Sync a specific dependency group: `uv sync --only-group test`
+- Create or update the lock file: `uv lock`
+- Update the locked version of a specific package: `uv lock --update requests`
+- Run a command: `uv run <command>`
