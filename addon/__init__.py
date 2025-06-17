@@ -279,13 +279,13 @@ class BlenderMCPServer:
                 self._debug_print_counter = 0
 
             # 只在队列不为空或每100次循环打印一次状态
-            if (
-                not self._execution_queue.empty()
-                or self._debug_print_counter % 100 == 0
-            ):
-                print(
-                    f"[MCP_QUEUE_PROCESSOR] 当前队列任务数: {self._execution_queue.qsize() if hasattr(self._execution_queue, 'qsize') else '未知'}",
-                )
+            # if (
+            #     not self._execution_queue.empty()
+            #     or self._debug_print_counter % 100 == 0
+            # ):
+            #     print(
+            #         f"[MCP_QUEUE_PROCESSOR] 当前队列任务数: {self._execution_queue.qsize() if hasattr(self._execution_queue, 'qsize') else '未知'}",
+            #     )
 
             # 递增计数器
             self._debug_print_counter += 1

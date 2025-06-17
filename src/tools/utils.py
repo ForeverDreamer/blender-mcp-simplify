@@ -2,7 +2,7 @@
 Utility functions for Blender MCP tools
 
 Provides standardized response formats and basic validation functions.
-Simplified for CodeAct paradigm following MCP 2024 best practices.
+Enhanced with improved JSON handling to fix "Invalid JSON: Unterminated string" errors.
 """
 
 import json
@@ -11,9 +11,8 @@ import socket
 import time
 import traceback
 from collections.abc import Callable
-from typing import Any
-
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -28,12 +27,97 @@ class BlenderConnection:
 logger = logging.getLogger(__name__)
 
 
+def safe_json_dumps(data: dict[str, Any], **kwargs) -> str:
+    """
+    Safely serialize data to JSON with proper error handling.
+
+    This function addresses common JSON serialization issues by:
+    1. Using ensure_ascii=False to handle Unicode properly
+    2. Adding fallback serialization methods
+    3. Validating the result can be parsed
+
+    Args:
+        data: Dictionary to serialize
+        **kwargs: Additional arguments for json.dumps
+
+    Returns:
+        JSON string
+
+    Raises:
+        ValueError: If serialization fails
+
+    """
+    try:
+        # First attempt: use ensure_ascii=False for better Unicode handling
+        json_str = json.dumps(
+            data,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            **kwargs,
+        )
+
+        # Validate by attempting to parse
+        json.loads(json_str)
+        return json_str
+
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        logger.warning(f"First JSON serialization attempt failed: {e}")
+
+        try:
+            # Second attempt: with ensure_ascii=True (default)
+            json_str = json.dumps(
+                data,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                **kwargs,
+            )
+
+            # Validate by attempting to parse
+            json.loads(json_str)
+            return json_str
+
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.error(f"Second JSON serialization attempt failed: {e}")
+
+            try:
+                # Third attempt: manual string escaping for problematic code
+                if "params" in data and "code" in data["params"]:
+                    # Create a copy and escape the code string manually
+                    data_copy = data.copy()
+                    code = data["params"]["code"]
+
+                    # Manual escaping for problematic characters
+                    escaped_code = (
+                        code.replace("\\", "\\\\")  # Escape backslashes first
+                        .replace('"', '\\"')  # Escape double quotes
+                        .replace("\n", "\\n")  # Escape newlines
+                        .replace("\r", "\\r")  # Escape carriage returns
+                        .replace("\t", "\\t")
+                    )  # Escape tabs
+
+                    data_copy["params"] = data["params"].copy()
+                    data_copy["params"]["code"] = escaped_code
+
+                    json_str = json.dumps(data_copy, ensure_ascii=True)
+
+                    # Note: We don't validate this one since the code is manually escaped
+                    # The receiving end will need to handle the escaping
+                    logger.info("Used manual string escaping for JSON serialization")
+                    return json_str
+                raise
+
+            except Exception as e:
+                logger.error(f"All JSON serialization attempts failed: {e}")
+                raise ValueError(f"Failed to serialize data to JSON: {e}")
+
+
 def send_command(
     command: dict[str, Any],
     connection: BlenderConnection,
 ) -> dict[str, Any]:
     """
     通过 socket 连接向 Blender 发送命令。
+    Enhanced with improved JSON handling and better error recovery.
 
     Args:
         command: 要发送的命令字典
@@ -48,15 +132,56 @@ def send_command(
             sock.settimeout(connection.timeout)
             sock.connect((connection.host, connection.port))
 
+            # 使用改进的JSON序列化
+            try:
+                command_json = safe_json_dumps(command)
+            except ValueError as e:
+                logger.error(f"JSON serialization failed: {e}")
+                return {"success": False, "error": f"JSON serialization failed: {e}"}
+
             # 发送命令
-            command_json = json.dumps(command)
             sock.sendall(command_json.encode("utf-8"))
 
-            # 接收响应
-            response = sock.recv(4096).decode("utf-8")
-            result = json.loads(response)
+            # 接收响应 - 使用更大的缓冲区来处理大响应
+            response_data = b""
+            while True:
+                try:
+                    chunk = sock.recv(8192)  # 增加缓冲区大小
+                    if not chunk:
+                        break
+                    response_data += chunk
 
-            return result
+                    # 检查是否接收到完整的JSON
+                    try:
+                        response_str = response_data.decode("utf-8")
+                        result = json.loads(response_str)
+                        return result
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        # 还没有接收到完整的数据，继续接收
+                        continue
+
+                except TimeoutError:
+                    # 超时，但可能已经接收到部分数据
+                    break
+
+            # 最后尝试解析接收到的数据
+            if response_data:
+                try:
+                    response_str = response_data.decode("utf-8")
+                    result = json.loads(response_str)
+                    return result
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    logger.error(f"Failed to parse response: {e}")
+                    logger.error(f"Response data: {response_data[:500]}...")
+                    return {
+                        "success": False,
+                        "error": f"Invalid response format: {e}",
+                        "raw_response": response_data.decode("utf-8", errors="replace")[
+                            :500
+                        ],
+                    }
+            else:
+                return {"success": False, "error": "No response received from server"}
 
     except Exception as e:
         logger.error(f"Blender 连接失败: {e}")
