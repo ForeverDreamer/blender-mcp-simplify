@@ -18,7 +18,9 @@ def get_windows_host_ip():
             for line in f:
                 if line.startswith("nameserver"):
                     ip = line.split()[1].strip()
-                    return ip
+                    # 验证IP地址格式
+                    if ip and not ip.startswith("127."):
+                        return ip
     except:
         pass
     
@@ -37,8 +39,24 @@ def get_windows_host_ip():
     except:
         pass
     
-    # 默认回退
-    return "192.168.112.1"
+    try:
+        # 方法3: 使用 hostname -I 获取 WSL 网卡地址的网关
+        result = subprocess.run(
+            ["hostname", "-I"], 
+            capture_output=True, 
+            text=True
+        )
+        if result.returncode == 0:
+            wsl_ip = result.stdout.strip().split()[0]
+            # 通常 Windows 主机 IP 是 WSL IP 的 .1
+            ip_parts = wsl_ip.split('.')
+            ip_parts[-1] = '1'
+            return '.'.join(ip_parts)
+    except:
+        pass
+    
+    # 默认回退 - 常见的 WSL2 网关地址
+    return "192.168.112.1"  # 根据实际环境设置
 
 
 def is_wsl():
@@ -52,6 +70,7 @@ def is_wsl():
 def get_blender_host():
     """获取Blender服务器主机地址"""
     if is_wsl():
+        # 使用Windows宿主机IP地址
         return get_windows_host_ip()
     else:
         return "localhost"
@@ -60,7 +79,11 @@ def get_blender_host():
 # 配置常量
 BLENDER_HOST = get_blender_host()
 BLENDER_PORT = 9876
-BLENDER_TIMEOUT = 10.0
+BLENDER_TIMEOUT = 30.0  # 增加超时时间以提高连接稳定性
+
+# 代理模式配置（临时解决方案）
+USE_PROXY = False  # 设置为 True 使用本地代理
+PROXY_PORT = 9877  # 本地代理端口
 
 print(f"[CONFIG] 检测到运行环境: {'WSL' if is_wsl() else 'Native'}")
 print(f"[CONFIG] Blender主机地址: {BLENDER_HOST}")

@@ -32,7 +32,7 @@ if src_dir not in sys.path:
 
 # Default scripts root directory path
 # This is the fallback path used when no custom path is configured in Blender properties
-DEFAULT_SCRIPTS_ROOT = r"D:\data_files\mcps\blender-mcp-simplify\scripts"
+DEFAULT_SCRIPTS_ROOT = "/home/doer/data_files/video_scripts"
 
 # Global variables for server management
 _server_instance = None
@@ -40,6 +40,27 @@ _monitor_timer_running = False
 _last_restart_time = 0
 _restart_count = 0
 _max_restarts_per_hour = 10
+
+# Global variables for UI logging control
+_last_ui_log_time = 0
+_ui_log_cooldown = 5.0  # 5秒内不重复打印相同的UI日志
+
+
+def _global_queue_processor():
+    """Global function wrapper for queue processing to ensure proper timer callback"""
+    global _server_instance
+    # Add debug logging to see if timer is being called
+    print("[MCP_GLOBAL_TIMER] 全局定时器被调用")
+    
+    if _server_instance and _server_instance.running:
+        try:
+            return _server_instance._process_execution_queue()
+        except Exception as e:
+            print(f"[MCP_GLOBAL_PROCESSOR] 全局队列处理器错误: {e}")
+            return 0.1
+    else:
+        print(f"[MCP_GLOBAL_TIMER] 服务器状态: instance={_server_instance is not None}, running={_server_instance.running if _server_instance else False}")
+    return None
 
 
 class BlenderMCPProperties(bpy.types.PropertyGroup):
@@ -202,7 +223,9 @@ class BlenderMCPServer:
             test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             test_socket.settimeout(2.0)
 
-            result = test_socket.connect_ex((self.host, self.port))
+            # Always connect to localhost for health check, even if server binds to 0.0.0.0
+            connect_host = "127.0.0.1" if self.host == "0.0.0.0" else self.host
+            result = test_socket.connect_ex((connect_host, self.port))
             if result != 0:
                 test_socket.close()
                 self._health_check_result = False
@@ -278,14 +301,15 @@ class BlenderMCPServer:
             if not hasattr(self, "_debug_print_counter"):
                 self._debug_print_counter = 0
 
-            # 只在队列不为空或每100次循环打印一次状态
-            # if (
-            #     not self._execution_queue.empty()
-            #     or self._debug_print_counter % 100 == 0
-            # ):
-            #     print(
-            #         f"[MCP_QUEUE_PROCESSOR] 当前队列任务数: {self._execution_queue.qsize() if hasattr(self._execution_queue, 'qsize') else '未知'}",
-            #     )
+            # 每100次循环或队列不为空时打印状态（用于调试）
+            queue_size = self._execution_queue.qsize() if hasattr(self._execution_queue, 'qsize') else 0
+            if (
+                queue_size > 0
+                or self._debug_print_counter % 100 == 0
+            ):
+                print(
+                    f"[MCP_QUEUE_PROCESSOR] 当前队列任务数: {queue_size}",
+                )
 
             # 递增计数器
             self._debug_print_counter += 1
@@ -330,12 +354,11 @@ class BlenderMCPServer:
                     task["result_container"]["completed"] = True
                     print(f"[MCP_EXECUTOR] {task.get('type', 'unknown')} - 执行成功")
 
-                    # 如果是脚本或代码执行，强制更新场景
+                    # 如果是脚本或代码执行，进行简单的场景更新
                     if task.get("type") in ["execute_code", "execute_script_file"]:
                         try:
-                            # 强制刷新整个UI
-                            self._comprehensive_ui_refresh()
-                            print("[MCP_UI_REFRESH] 已完成完整UI刷新")
+                            # 简单UI刷新
+                            self._simple_ui_refresh()
                         except Exception as view_err:
                             print(f"[MCP_UI_REFRESH] UI刷新失败 - {view_err}")
 
@@ -361,9 +384,20 @@ class BlenderMCPServer:
 
     def _ensure_queue_processor(self):
         """Ensure the queue processor is registered"""
+        global _global_queue_processor
         if not self._queue_processor_registered and self.running:
-            bpy.app.timers.register(self._process_execution_queue, first_interval=0.1)
-            self._queue_processor_registered = True
+            try:
+                # Try to unregister first in case it's already registered
+                if bpy.app.timers.is_registered(_global_queue_processor):
+                    bpy.app.timers.unregister(_global_queue_processor)
+                
+                # Register the global timer function
+                bpy.app.timers.register(_global_queue_processor, first_interval=0.1)
+                self._queue_processor_registered = True
+                print("[MCP_TIMER] 队列处理器已注册: True")
+            except Exception as e:
+                print(f"[MCP_ERROR] 队列处理器注册失败: {e}")
+                self._queue_processor_registered = False
 
     def _server_loop(self):
         """Main server loop to handle client connections"""
@@ -430,47 +464,41 @@ class BlenderMCPServer:
                     if not command.get("_health_check", False):
                         print(f"Received command: {command.get('type', 'unknown')}")
 
-                    # Execute command on main thread using queue mechanism
-                    result_container = {"result": None, "completed": False}
-
-                    # Ensure queue processor is running
-                    self._ensure_queue_processor()
-
-                    # Create task and add to queue
-                    task = {
-                        "function": lambda: self.execute_command(command),
-                        "result_container": result_container,
-                        "type": command.get("type", "unknown"),
-                    }
-
-                    # 记录任务详情
-                    print(
-                        f"[MCP_QUEUE] 添加任务到队列: 类型={command.get('type', 'unknown')}",
-                    )
+                    # Execute command directly - simplified approach without timer-based queue
+                    print(f"[MCP_DIRECT] 直接执行命令: {command.get('type', 'unknown')}")
+                    
                     if command.get("type") == "execute_script_file":
                         params = command.get("params", {})
-                        print(
-                            f"[MCP_SCRIPT] 脚本执行: 脚本名={params.get('script_name', 'unknown')}",
-                        )
+                        print(f"[MCP_SCRIPT] 脚本执行: 脚本名={params.get('script_name', 'unknown')}")
                     elif command.get("type") == "execute_code":
-                        print(
-                            f"[MCP_CODE] 代码执行: 代码长度={len(command.get('params', {}).get('code', ''))}",
-                        )
+                        print(f"[MCP_CODE] 代码执行: 代码长度={len(command.get('params', {}).get('code', ''))}")
 
-                    try:
-                        self._execution_queue.put(task, block=False)
-                    except queue.Full:
-                        result_container["result"] = {
-                            "status": "error",
-                            "message": "Execution queue is full",
-                        }
-                        result_container["completed"] = True
-
+                    # Execute command directly on main thread using a simple mechanism
+                    result_container = {"result": None, "completed": False}
+                    
+                    def execute_on_main():
+                        try:
+                            result = self.execute_command(command)
+                            result_container["result"] = result
+                            result_container["completed"] = True
+                            print(f"[MCP_DIRECT] {command.get('type', 'unknown')} - 执行成功")
+                        except Exception as e:
+                            result_container["result"] = {
+                                "status": "error", 
+                                "message": str(e),
+                                "traceback": traceback.format_exc()
+                            }
+                            result_container["completed"] = True
+                            print(f"[MCP_DIRECT] {command.get('type', 'unknown')} - 执行失败: {e}")
+                    
+                    # Schedule execution on main thread
+                    bpy.app.timers.register(lambda: (execute_on_main(), None)[1], first_interval=0.01)
+                    
                     # Wait for completion with timeout
-                    timeout = 60.0  # Increased to 60 seconds timeout
+                    timeout = 60.0
                     start_time = time.time()
                     while not result_container["completed"]:
-                        time.sleep(0.05)  # Slightly longer sleep to reduce CPU usage
+                        time.sleep(0.05)
                         if time.time() - start_time > timeout:
                             result_container["result"] = {
                                 "status": "error",
@@ -561,6 +589,14 @@ class BlenderMCPServer:
         command_type = command.get("type")
         params = command.get("params", {})
 
+        # 添加 heartbeat 命令支持
+        if command_type == "heartbeat":
+            return {
+                "status": "success",
+                "message": "heartbeat_response",
+                "timestamp": time.time(),
+            }
+
         if command_type == "get_scene_info":
             return {
                 "status": "success",
@@ -623,111 +659,15 @@ class BlenderMCPServer:
             "object_count": len(objects),
         }
 
-    def _comprehensive_ui_refresh(self):
+    def _simple_ui_refresh(self):
         """
-        综合UI刷新函数 - 强制Blender更新所有相关组件
-        基于最新的Blender Python API最佳实践
+        简化的UI刷新函数 - 只做必要的更新
         """
         try:
-            print("[MCP_UI_REFRESH] 开始执行完整UI刷新...")
-
-            # 1. 更新依赖图 (现代Blender API)
-            try:
-                depsgraph = bpy.context.evaluated_depsgraph_get()
-                depsgraph.update()
-                print("[MCP_UI_REFRESH] dependency graph 已更新")
-            except Exception as e:
-                print(f"[MCP_UI_REFRESH] dependency graph 更新失败: {e}")
-
-            # 2. 更新视图层
-            try:
-                bpy.context.view_layer.update()
-                print("[MCP_UI_REFRESH] 视图层已更新")
-            except Exception as e:
-                print(f"[MCP_UI_REFRESH] 视图层更新失败: {e}")
-
-            # 3. 标记场景更新
-            try:
-                if hasattr(bpy.context.scene, "update_tag"):
-                    bpy.context.scene.update_tag()
-                    print("[MCP_UI_REFRESH] 场景已标记更新")
-            except Exception as e:
-                print(f"[MCP_UI_REFRESH] 场景标记更新失败: {e}")
-
-            # 4. 强制重绘所有窗口 - 最关键的步骤
-            try:
-                # 尝试使用安全的方式强制重绘
-                try:
-                    # 方法1: 使用 redraw_timer (仅在交互式上下文中有效)
-                    bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
-                    print("[MCP_UI_REFRESH] 窗口重绘方法1成功")
-                except Exception as e1:
-                    print(f"[MCP_UI_REFRESH] 窗口重绘方法1失败: {e1}")
-
-                    # 方法2: 使用temp_override (Blender 3.0+)
-                    try:
-                        for window in bpy.context.window_manager.windows:
-                            for area in window.screen.areas:
-                                if area.type == "VIEW_3D":
-                                    with bpy.context.temp_override(
-                                        window=window,
-                                        area=area,
-                                    ):
-                                        bpy.ops.wm.redraw_timer(
-                                            type="DRAW_WIN_SWAP",
-                                            iterations=1,
-                                        )
-                                        print("[MCP_UI_REFRESH] 窗口重绘方法2成功")
-                                        break
-                    except Exception as e2:
-                        print(f"[MCP_UI_REFRESH] 窗口重绘方法2失败: {e2}")
-            except Exception as e:
-                print(f"[MCP_UI_REFRESH] 窗口重绘失败: {e}")
-
-            # 5. 标记所有区域重绘
-            try:
-                for window in bpy.context.window_manager.windows:
-                    for area in window.screen.areas:
-                        for region in area.regions:
-                            region.tag_redraw()
-                print("[MCP_UI_REFRESH] 所有区域已标记重绘")
-            except Exception as e:
-                print(f"[MCP_UI_REFRESH] 区域标记重绘失败: {e}")
-
-            # 6. 特别处理3D视口
-            try:
-                for area in bpy.context.screen.areas:
-                    if area.type == "VIEW_3D":
-                        area.tag_redraw()
-                        # 强制更新3D视口
-                        for space in area.spaces:
-                            if space.type == "VIEW_3D":
-                                # 触发3D视口特定的更新
-                                pass
-                print("[MCP_UI_REFRESH] 3D视口已特别处理")
-            except Exception as e:
-                print(f"[MCP_UI_REFRESH] 3D视口处理失败: {e}")
-
-            # 7. 确保outliner也更新
-            try:
-                for area in bpy.context.screen.areas:
-                    if area.type == "OUTLINER":
-                        area.tag_redraw()
-                print("[MCP_UI_REFRESH] Outliner已标记更新")
-            except Exception as e:
-                print(f"[MCP_UI_REFRESH] Outliner更新失败: {e}")
-
-            print("[MCP_UI_REFRESH] 完整UI刷新执行完成")
-
+            # 只保留基本的视图层更新，这对于MCP操作已经足够
+            bpy.context.view_layer.update()
         except Exception as e:
-            print(f"[MCP_UI_REFRESH] 综合UI刷新失败: {e}")
-            print(f"[MCP_ERROR] 堆栈: {traceback.format_exc()}")
-            # 如果综合刷新失败，至少尝试基本的更新
-            try:
-                bpy.context.view_layer.update()
-                print("[MCP_UI_REFRESH] 降级到基本视图层更新")
-            except Exception as fallback_e:
-                print(f"[MCP_ERROR] 连基本更新也失败: {fallback_e}")
+            print(f"[MCP_UI_REFRESH] 基本更新失败: {e}")
 
     def execute_code(self, code):
         """Execute arbitrary Blender Python code"""
@@ -742,8 +682,8 @@ class BlenderMCPServer:
 
             captured_output = capture_buffer.getvalue()
 
-            # 强制刷新Blender UI和场景
-            self._comprehensive_ui_refresh()
+            # 简单的UI刷新
+            self._simple_ui_refresh()
 
             return {"executed": True, "result": captured_output}
         except Exception as e:
@@ -755,7 +695,7 @@ class BlenderMCPServer:
         scripts_directory="scripts",
         parameters=None,
     ):
-        """Execute a Python script file from the scripts directory"""
+        """Execute a Python script file from the scripts directory, supporting relative paths"""
         try:
             import os
             import sys
@@ -763,16 +703,20 @@ class BlenderMCPServer:
 
             print(f"Starting script execution: {script_name}")
 
+            # Handle relative paths within the scripts directory
+            # script_name can now include subdirectories like "basic/create_cube.py"
+            script_relative_path = script_name
+            
             # Ensure script name has .py extension
-            if not script_name.endswith(".py"):
-                script_name += ".py"
+            if not script_relative_path.endswith(".py"):
+                script_relative_path += ".py"
 
             # Get configured scripts root directory
             scripts_root = self.get_scripts_root()
-            if scripts_directory == "scripts":
-                script_path = os.path.join(scripts_root, script_name)
-            else:
-                script_path = os.path.join(scripts_root, scripts_directory, script_name)
+            
+            # Always use the script_relative_path directly from scripts_root
+            # This allows for subdirectories like "basic/script.py" or "advanced/script.py"
+            script_path = os.path.join(scripts_root, script_relative_path)
 
             print(f"Looking for script at: {script_path}")
 
@@ -852,12 +796,8 @@ class BlenderMCPServer:
                 else:
                     print("[MCP_SCRIPT_EXEC] 未检测到main函数或已在全局执行")
 
-                # 强制刷新 Blender UI和场景
-                self._comprehensive_ui_refresh()
-
-                # 对于复杂场景，等待短暂时间后再次刷新
-                time.sleep(0.5)
-                self._comprehensive_ui_refresh()
+                # 简单UI刷新
+                self._simple_ui_refresh()
 
                 print("[MCP_SCRIPT_EXEC] 执行完成 - 更新后状态")
                 print(f"[MCP_SCENE] 对象数量={len(bpy.context.scene.objects)}")
@@ -1016,78 +956,179 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         global _server_instance
-
-        # Configuration section
-        config_box = layout.box()
-        config_box.label(text="Configuration", icon="PREFERENCES")
-
-        # Scripts root directory setting
+        
+        # 在UI绘制前确保属性已正确初始化
         try:
-            if hasattr(context.scene, "blender_mcp") and hasattr(
-                context.scene.blender_mcp,
-                "scripts_root",
-            ):
-                config_box.prop(
-                    context.scene.blender_mcp,
-                    "scripts_root",
-                    text="Scripts Directory",
-                )
-                config_box.operator(
-                    "blendermcp.test_scripts_path",
-                    text="Test Path",
-                    icon="CHECKMARK",
-                )
-            else:
-                scripts_path = (
-                    DEFAULT_SCRIPTS_ROOT
-                    if not _server_instance
-                    else _server_instance.get_scripts_root()
-                )
-                config_box.label(text=f"Scripts: {scripts_path}", icon="INFO")
-                config_box.operator(
-                    "blendermcp.test_scripts_path",
-                    text="Test Path",
-                    icon="CHECKMARK",
-                )
-        except Exception as e:
-            config_box.label(text=f"Scripts: {DEFAULT_SCRIPTS_ROOT}", icon="ERROR")
-            config_box.label(text=f"Error: {str(e)[:40]}...", icon="ERROR")
+            if hasattr(context, "scene") and context.scene:
+                scene = context.scene
+                # 强制确保blender_mcp属性存在
+                if not hasattr(scene, "blender_mcp"):
+                    print("[MCP_UI] 检测到缺失的blender_mcp属性，尝试重新初始化...")
+                    # 尝试触发属性重新创建
+                    try:
+                        bpy.types.Scene.blender_mcp = bpy.props.PointerProperty(type=BlenderMCPProperties)
+                        print("[MCP_UI] 属性重新注册完成")
+                    except Exception as re_reg_err:
+                        print(f"[MCP_UI] 属性重新注册失败: {re_reg_err}")
+        except Exception as init_err:
+            print(f"[MCP_UI] 属性初始化检查失败: {init_err}")
 
-        # Server status section
-        box = layout.box()
-        box.label(text="Server Status", icon="NETWORK_DRIVE")
-
+        # 服务器状态 - 简洁的状态指示
+        status_box = layout.box()
+        
         if _server_instance and _server_instance.running:
             status = _server_instance.get_server_status()
             server_info = status["server"]
-
-            # Status indicators
+            
+            # 主状态行
+            row = status_box.row()
+            row.scale_y = 1.5
             if server_info["healthy"]:
-                box.label(text="Status: Running ✓", icon="CHECKMARK")
+                row.label(text="● 服务器运行中", icon="CHECKMARK")
             else:
-                box.label(text="Status: Unhealthy ⚠", icon="ERROR")
-
-            box.label(text=f"Port: {server_info['port']}")
-            box.label(text=f"Uptime: {format_uptime(server_info['uptime'])}")
-            box.label(text=f"Connections: {status['connections']['total']}")
-            box.label(text=f"Commands: {status['commands']['total_processed']}")
-
-            # Control buttons
-            row = box.row()
-            row.operator("blendermcp.restart_server", text="Restart")
-            row.operator("blendermcp.emergency_stop", text="Stop")
+                row.alert = True
+                row.label(text="● 服务器异常", icon="ERROR")
+            
+            # 快速信息
+            col = status_box.column()
+            col.label(text=f"端口: {server_info['port']}")
+            
+            # 如果有错误显示错误信息
+            if server_info.get("last_error"):
+                col.alert = True
+                col.label(text=f"错误: {server_info['last_error'][:50]}...", icon="ERROR")
         else:
-            box.label(text="Status: Stopped", icon="CANCEL")
-            box.operator("blendermcp.restart_server", text="Start Server")
+            row = status_box.row()
+            row.scale_y = 1.5
+            row.alert = True
+            row.label(text="● 服务器已停止", icon="CANCEL")
 
-        # Monitoring section
-        box = layout.box()
-        box.label(text="Monitoring", icon="TIME")
-
-        if _monitor_timer_running:
-            box.label(text="Auto-monitoring: Enabled ✓")
+        # 控制按钮 - 更突出
+        row = layout.row(align=True)
+        row.scale_y = 1.3
+        if _server_instance and _server_instance.running:
+            row.operator("blendermcp.restart_server", text="重启服务器", icon="FILE_REFRESH")
+            row.operator("blendermcp.emergency_stop", text="停止", icon="CANCEL")
         else:
-            box.label(text="Auto-monitoring: Disabled")
+            row.operator("blendermcp.restart_server", text="启动服务器", icon="PLAY")
+
+        # 脚本目录配置
+        config_box = layout.box()
+        config_box.label(text="脚本目录", icon="SCRIPT")
+        
+        # 完全安全的属性检查，避免所有可能的prop()错误
+        scripts_path_available = False
+        current_scripts_path = DEFAULT_SCRIPTS_ROOT
+        
+        try:
+            # 多层验证确保属性完全可用
+            if (hasattr(context, "scene") and 
+                context.scene is not None and
+                hasattr(context.scene, "blender_mcp")):
+                
+                try:
+                    # 尝试获取属性对象
+                    mcp_props = context.scene.blender_mcp
+                    if mcp_props is not None and hasattr(mcp_props, "scripts_root"):
+                        # 再次验证可以实际访问属性值
+                        test_value = mcp_props.scripts_root
+                        
+                        # 检查是否是_PropertyDeferred对象（未初始化的属性）
+                        if hasattr(test_value, '__class__') and '_PropertyDeferred' in str(type(test_value)):
+                            # 使用全局变量控制日志频率，避免无限打印
+                            global _last_ui_log_time, _ui_log_cooldown
+                            current_time = time.time()
+                            if current_time - _last_ui_log_time > _ui_log_cooldown:
+                                print("[MCP_UI] 检测到_PropertyDeferred，属性未完全初始化（后续将静默处理）")
+                                _last_ui_log_time = current_time
+                            scripts_path_available = False
+                            current_scripts_path = DEFAULT_SCRIPTS_ROOT
+                        else:
+                            current_scripts_path = test_value if test_value else DEFAULT_SCRIPTS_ROOT
+                            scripts_path_available = True
+                            # 只在属性状态改变时打印
+                            current_time = time.time()
+                            if current_time - _last_ui_log_time > _ui_log_cooldown:
+                                print(f"[MCP_UI] 属性正常，当前路径: {current_scripts_path}")
+                                _last_ui_log_time = current_time
+                except Exception as prop_err:
+                    print(f"[MCP_UI] 属性访问失败: {prop_err}")
+                    scripts_path_available = False
+        except Exception as check_err:
+            print(f"[MCP_UI] 属性检查异常: {check_err}")
+            scripts_path_available = False
+            
+        # 根据属性可用性决定UI显示方式
+        if scripts_path_available:
+            try:
+                # 只有在100%确认属性可用时才使用prop()
+                config_box.prop(
+                    context.scene.blender_mcp,
+                    "scripts_root",
+                    text="",
+                )
+                print("[MCP_UI] prop()调用成功")
+            except Exception as prop_draw_err:
+                print(f"[MCP_UI] prop()绘制失败: {prop_draw_err}")
+                # 降级到静态显示
+                config_box.label(text=f"路径: {current_scripts_path}", icon="FOLDER_REDIRECT")
+        else:
+            # 使用静态显示，完全避免prop()
+            config_box.label(text=f"默认路径: {current_scripts_path}", icon="INFO")
+            config_box.label(text="属性初始化中...", icon="TIME")
+            
+        # 操作按钮始终可用
+        row = config_box.row(align=True)
+        row.operator("blendermcp.test_scripts_path", text="验证路径", icon="CHECKMARK")
+        row.operator("blendermcp.open_scripts_folder", text="打开文件夹", icon="FILE_FOLDER")
+
+        # 快速操作
+        action_box = layout.box()
+        action_box.label(text="快速操作", icon="TOOL_SETTINGS")
+        
+        col = action_box.column(align=True)
+        col.operator("blendermcp.clear_scene", text="清空场景", icon="TRASH")
+        col.operator("blendermcp.test_connection", text="测试连接", icon="LINKED")
+        
+        # 高级选项（折叠）
+        try:
+            if (hasattr(context, "scene") and 
+                hasattr(context.scene, "blender_mcp_show_advanced")):
+                show_advanced = context.scene.blender_mcp_show_advanced
+            else:
+                show_advanced = False
+                
+            row = layout.row()
+            if hasattr(context.scene, "blender_mcp_show_advanced"):
+                row.prop(
+                    context.scene,
+                    "blender_mcp_show_advanced",
+                    text="高级选项",
+                    icon="TRIA_DOWN" if show_advanced else "TRIA_RIGHT",
+                )
+            else:
+                # 如果属性不可用，显示静态标签
+                row.label(text="高级选项 (加载中...)", icon="TIME")
+        except (AttributeError, RuntimeError) as e:
+            show_advanced = False
+            row = layout.row()
+            row.label(text="高级选项 (初始化中...)", icon="TIME")
+            print(f"[MCP_UI] 高级选项属性访问异常: {e}")
+        
+        if show_advanced:
+            advanced_box = layout.box()
+            if _server_instance and _server_instance.running:
+                status = _server_instance.get_server_status()
+                advanced_box.label(text=f"运行时间: {format_uptime(status['server']['uptime'])}")
+                advanced_box.label(text=f"处理命令: {status['commands']['total_processed']}")
+                advanced_box.label(text=f"总连接数: {status['connections']['total']}")
+            
+            # 监控状态
+            row = advanced_box.row()
+            if _monitor_timer_running:
+                row.label(text="自动监控: 已启用", icon="TIME")
+            else:
+                row.label(text="自动监控: 已禁用", icon="TIME")
 
 
 class BLENDERMCP_OT_RestartServer(bpy.types.Operator):
@@ -1145,14 +1186,91 @@ class BLENDERMCP_OT_TestScriptsPath(bpy.types.Operator):
             ]
             self.report(
                 {"INFO"},
-                f"Scripts path is valid! Found {len(py_files)} Python scripts",
+                f"路径有效！找到 {len(py_files)} 个 Python 脚本",
             )
         else:
             self.report(
                 {"ERROR"},
-                f"Scripts path is invalid or does not exist: {scripts_root}",
+                f"路径无效或不存在: {scripts_root}",
             )
 
+        return {"FINISHED"}
+
+
+class BLENDERMCP_OT_OpenScriptsFolder(bpy.types.Operator):
+    bl_idname = "blendermcp.open_scripts_folder"
+    bl_label = "Open Scripts Folder"
+    bl_description = "在文件管理器中打开脚本目录"
+
+    def execute(self, context):
+        global _server_instance
+
+        if _server_instance:
+            scripts_root = _server_instance.get_scripts_root()
+        else:
+            try:
+                scripts_root = context.scene.blender_mcp.scripts_root
+            except (AttributeError, RuntimeError):
+                scripts_root = DEFAULT_SCRIPTS_ROOT
+
+        import os
+        import platform
+        import subprocess
+
+        if os.path.exists(scripts_root):
+            if platform.system() == "Windows":
+                os.startfile(scripts_root)
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", scripts_root])
+            else:  # Linux
+                subprocess.run(["xdg-open", scripts_root])
+            self.report({"INFO"}, f"打开目录: {scripts_root}")
+        else:
+            self.report({"ERROR"}, f"目录不存在: {scripts_root}")
+
+        return {"FINISHED"}
+
+
+class BLENDERMCP_OT_ClearScene(bpy.types.Operator):
+    bl_idname = "blendermcp.clear_scene"
+    bl_label = "Clear Scene"
+    bl_description = "清除场景中的所有对象"
+
+    def execute(self, context):
+        # 删除所有对象
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=False)
+        
+        # 删除所有网格数据
+        for mesh in bpy.data.meshes:
+            bpy.data.meshes.remove(mesh)
+        
+        # 删除所有材质
+        for material in bpy.data.materials:
+            bpy.data.materials.remove(material)
+            
+        self.report({"INFO"}, "场景已清空")
+        return {"FINISHED"}
+
+
+class BLENDERMCP_OT_TestConnection(bpy.types.Operator):
+    bl_idname = "blendermcp.test_connection"
+    bl_label = "Test Connection"
+    bl_description = "测试 MCP 服务器连接"
+
+    def execute(self, context):
+        global _server_instance
+        
+        if not _server_instance or not _server_instance.running:
+            self.report({"ERROR"}, "服务器未运行")
+            return {"CANCELLED"}
+        
+        # 测试连接
+        if _server_instance.is_healthy():
+            self.report({"INFO"}, "连接正常！")
+        else:
+            self.report({"ERROR"}, "连接失败！")
+        
         return {"FINISHED"}
 
 
@@ -1160,14 +1278,72 @@ def register():
     try:
         # Register property group first
         bpy.utils.register_class(BlenderMCPProperties)
-        # Add property group to scene
-        bpy.types.Scene.blender_mcp = PointerProperty(type=BlenderMCPProperties)
+        
+        # Add property group to scene with error handling
+        try:
+            bpy.types.Scene.blender_mcp = PointerProperty(type=BlenderMCPProperties)
+            print("[MCP_REGISTER] BlenderMCPProperties 属性组已注册到Scene")
+        except Exception as e:
+            print(f"[MCP_ERROR] 属性组注册失败: {e}")
+            
+        # 添加高级选项属性
+        try:
+            bpy.types.Scene.blender_mcp_show_advanced = bpy.props.BoolProperty(
+                name="Show Advanced Options",
+                default=False,
+            )
+            print("[MCP_REGISTER] 高级选项属性已注册")
+        except Exception as e:
+            print(f"[MCP_ERROR] 高级选项属性注册失败: {e}")
 
         # Then register UI classes
         bpy.utils.register_class(BLENDERMCP_PT_Panel)
         bpy.utils.register_class(BLENDERMCP_OT_RestartServer)
         bpy.utils.register_class(BLENDERMCP_OT_EmergencyStop)
         bpy.utils.register_class(BLENDERMCP_OT_TestScriptsPath)
+        bpy.utils.register_class(BLENDERMCP_OT_OpenScriptsFolder)
+        bpy.utils.register_class(BLENDERMCP_OT_ClearScene)
+        bpy.utils.register_class(BLENDERMCP_OT_TestConnection)
+
+        # 强制初始化属性 - 修复_PropertyDeferred问题
+        def force_property_initialization():
+            try:
+                print("[MCP_INIT] 开始强制属性初始化...")
+                
+                # 强制重新注册属性以避免_PropertyDeferred
+                if hasattr(bpy.types.Scene, "blender_mcp"):
+                    delattr(bpy.types.Scene, "blender_mcp")
+                    print("[MCP_INIT] 清除旧属性定义")
+                
+                # 重新注册属性
+                bpy.types.Scene.blender_mcp = PointerProperty(type=BlenderMCPProperties)
+                print("[MCP_INIT] 重新注册属性")
+                
+                # 确保当前场景有这个属性
+                if hasattr(bpy.context, "scene") and bpy.context.scene:
+                    scene = bpy.context.scene
+                    try:
+                        # 强制访问属性来触发初始化
+                        mcp_props = scene.blender_mcp
+                        if hasattr(mcp_props, "scripts_root"):
+                            # 尝试设置默认值来完成初始化
+                            if not mcp_props.scripts_root:
+                                mcp_props.scripts_root = DEFAULT_SCRIPTS_ROOT
+                            print(f"[MCP_INIT] 属性初始化完成，值: {mcp_props.scripts_root}")
+                        else:
+                            print("[MCP_INIT] 属性缺少scripts_root字段")
+                    except Exception as access_err:
+                        print(f"[MCP_INIT] 属性访问失败: {access_err}")
+                        
+            except Exception as e:
+                print(f"[MCP_INIT] 强制属性初始化失败: {e}")
+        
+        # 延迟执行强制初始化
+        def delayed_force_init():
+            force_property_initialization()
+            return None  # 不重复执行
+            
+        bpy.app.timers.register(delayed_force_init, first_interval=1.0)
 
         # Auto-start server and monitoring
         start_server_if_needed()
@@ -1188,6 +1364,9 @@ def unregister():
         stop_server()
 
         # Unregister UI classes
+        bpy.utils.unregister_class(BLENDERMCP_OT_TestConnection)
+        bpy.utils.unregister_class(BLENDERMCP_OT_ClearScene)
+        bpy.utils.unregister_class(BLENDERMCP_OT_OpenScriptsFolder)
         bpy.utils.unregister_class(BLENDERMCP_OT_EmergencyStop)
         bpy.utils.unregister_class(BLENDERMCP_OT_RestartServer)
         bpy.utils.unregister_class(BLENDERMCP_OT_TestScriptsPath)
@@ -1196,6 +1375,9 @@ def unregister():
         # Remove property group from scene
         if hasattr(bpy.types.Scene, "blender_mcp"):
             del bpy.types.Scene.blender_mcp
+            
+        if hasattr(bpy.types.Scene, "blender_mcp_show_advanced"):
+            del bpy.types.Scene.blender_mcp_show_advanced
 
         # Unregister property group
         bpy.utils.unregister_class(BlenderMCPProperties)

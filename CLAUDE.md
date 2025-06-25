@@ -23,6 +23,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Verify directory exists before changing to it
 - Use absolute paths when possible to ensure accuracy
 
+## Script Execution Rules
+
+- When executing `sync_to_windows.sh` or `restart_blender_wsl.sh`, always run them in a new terminal to avoid blocking the current session
+- Use commands like `gnome-terminal -- bash -c './script_name.sh'` or similar terminal spawning methods
+- These scripts are long-running processes that should not block the interactive session
+
 ## Basic Package Management Commands
 
 - Use `uv` as the primary package management tool

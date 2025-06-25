@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "sequentialthinking": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "tavily": {
+      "command": "npx",
+      "args": ["-y", "tavily-mcp@0.1.4"],
+      "env": {
+        "TAVILY_API_KEY": "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"
+      }
+    },
+    "blender-mcp": {
+      "command": "/home/doer/data_files/mcps/blender-mcp-simplify/.venv/bin/python",
+      "args": [
+        "/home/doer/data_files/mcps/blender-mcp-simplify/main.py"
+      ],
+      "env": {},
+      "cwd": "/home/doer/data_files/mcps/blender-mcp-simplify"
+    }
+  } 
+}

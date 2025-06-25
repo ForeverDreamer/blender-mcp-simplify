@@ -111,6 +111,18 @@ def safe_json_dumps(data: dict[str, Any], **kwargs) -> str:
                 raise ValueError(f"Failed to serialize data to JSON: {e}")
 
 
+def get_windows_host_ip() -> str:
+    """获取Windows宿主机IP地址"""
+    try:
+        with open('/etc/resolv.conf', 'r') as f:
+            for line in f:
+                if 'nameserver' in line:
+                    return line.split()[1]
+    except Exception:
+        pass
+    return '127.0.0.1'
+
+
 def send_command(
     command: dict[str, Any],
     connection: BlenderConnection,
@@ -118,6 +130,7 @@ def send_command(
     """
     通过 socket 连接向 Blender 发送命令。
     Enhanced with improved JSON handling and better error recovery.
+    Fixed WSL2 bidirectional communication issue.
 
     Args:
         command: 要发送的命令字典
@@ -127,65 +140,133 @@ def send_command(
         Blender服务器的响应字典
 
     """
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(connection.timeout)
-            sock.connect((connection.host, connection.port))
-
-            # 使用改进的JSON序列化
-            try:
-                command_json = safe_json_dumps(command)
-            except ValueError as e:
-                logger.error(f"JSON serialization failed: {e}")
-                return {"success": False, "error": f"JSON serialization failed: {e}"}
-
-            # 发送命令
-            sock.sendall(command_json.encode("utf-8"))
-
-            # 接收响应 - 使用更大的缓冲区来处理大响应
-            response_data = b""
-            while True:
+    max_retries = 3
+    retry_delay = 1.0
+    
+    # 在WSL2环境中，使用Windows宿主机IP
+    host = get_windows_host_ip() if connection.host in ['localhost', '127.0.0.1'] else connection.host
+    
+    for attempt in range(max_retries):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(connection.timeout)
+                
+                # 设置socket选项以改善连接稳定性
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                
                 try:
-                    chunk = sock.recv(8192)  # 增加缓冲区大小
-                    if not chunk:
-                        break
-                    response_data += chunk
+                    sock.connect((host, connection.port))
+                    logger.debug(f"Connected to {host}:{connection.port}")
+                except ConnectionRefusedError:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Connection refused to {host}:{connection.port}, retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        raise
 
-                    # 检查是否接收到完整的JSON
+                # 使用改进的JSON序列化
+                try:
+                    command_json = safe_json_dumps(command)
+                except ValueError as e:
+                    logger.error(f"JSON serialization failed: {e}")
+                    return {"success": False, "error": f"JSON serialization failed: {e}"}
+
+                # 发送命令
+                sock.sendall(command_json.encode("utf-8"))
+                logger.debug(f"Sent command: {command.get('command', 'unknown')}")
+
+                # 接收响应 - 改进的响应处理逻辑
+                response_data = b""
+                start_time = time.time()
+                
+                # 等待初始响应
+                sock.settimeout(2.0)  # 短超时等待响应开始
+                
+                try:
+                    # 首先等待一些数据到达
+                    initial_chunk = sock.recv(1024)
+                    if initial_chunk:
+                        response_data += initial_chunk
+                        
+                        # 如果看起来是完整的JSON，尝试解析
+                        try:
+                            response_str = response_data.decode("utf-8")
+                            if response_str.strip():
+                                result = json.loads(response_str)
+                                logger.debug(f"Received complete response: {len(response_str)} chars")
+                                return result
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            # 不是完整的JSON，继续接收
+                            pass
+                        
+                        # 继续接收剩余数据
+                        sock.settimeout(connection.timeout)
+                        while True:
+                            try:
+                                chunk = sock.recv(8192)
+                                if not chunk:
+                                    break
+                                response_data += chunk
+                                
+                                # 检查是否接收到完整的JSON
+                                try:
+                                    response_str = response_data.decode("utf-8")
+                                    result = json.loads(response_str)
+                                    logger.debug(f"Received complete response: {len(response_str)} chars")
+                                    return result
+                                except (json.JSONDecodeError, UnicodeDecodeError):
+                                    # 还没有接收到完整的数据，继续接收
+                                    continue
+                                    
+                            except socket.timeout:
+                                # 超时，检查是否有可用数据
+                                if time.time() - start_time > connection.timeout:
+                                    break
+                                continue
+                            except socket.error:
+                                break
+                    else:
+                        # 没有接收到初始数据
+                        logger.warning("No initial response received")
+                        
+                except socket.timeout:
+                    logger.warning("Timeout waiting for initial response")
+                except socket.error as e:
+                    logger.error(f"Socket error during response: {e}")
+
+                # 最后尝试解析接收到的数据
+                if response_data:
                     try:
                         response_str = response_data.decode("utf-8")
-                        result = json.loads(response_str)
-                        return result
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        # 还没有接收到完整的数据，继续接收
-                        continue
+                        if response_str.strip():
+                            result = json.loads(response_str)
+                            logger.debug(f"Parsed final response: {len(response_str)} chars")
+                            return result
+                        else:
+                            logger.warning("Received empty response")
+                            return {"success": False, "error": "Empty response received from server"}
+                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                        logger.error(f"Failed to parse response: {e}")
+                        logger.error(f"Response data: {response_data[:500]}...")
+                        return {
+                            "success": False,
+                            "error": f"Invalid response format: {e}",
+                            "raw_response": response_data.decode("utf-8", errors="replace")[:500],
+                        }
+                else:
+                    logger.warning("No response received from server")
+                    return {"success": False, "error": "No response received from server"}
 
-                except TimeoutError:
-                    # 超时，但可能已经接收到部分数据
-                    break
-
-            # 最后尝试解析接收到的数据
-            if response_data:
-                try:
-                    response_str = response_data.decode("utf-8")
-                    result = json.loads(response_str)
-                    return result
-                except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                    logger.error(f"Failed to parse response: {e}")
-                    logger.error(f"Response data: {response_data[:500]}...")
-                    return {
-                        "success": False,
-                        "error": f"Invalid response format: {e}",
-                        "raw_response": response_data.decode("utf-8", errors="replace")[
-                            :500
-                        ],
-                    }
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Blender 连接失败: {e}, retrying... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(retry_delay)
+                continue
             else:
-                return {"success": False, "error": "No response received from server"}
-
-    except Exception as e:
-        logger.error(f"Blender 连接失败: {e}")
-        return {"success": False, "error": str(e)}
+                logger.error(f"Blender 连接失败 after {max_retries} attempts: {e}")
+                return {"success": False, "error": str(e)}
 
 
 def create_standard_response(
