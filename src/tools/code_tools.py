@@ -11,6 +11,7 @@ Enhanced with improved JSON handling to fix "Invalid JSON: Unterminated string" 
 import json
 import logging
 import os
+import sys
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -22,14 +23,18 @@ from .utils import (
     send_command,
 )
 
+# 添加配置导入
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from config import BLENDER_HOST, BLENDER_PORT, BLENDER_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 
 def execute_code(
     code: str,
-    host: str = "localhost",
-    port: int = 9876,
-    timeout: float = 30.0,
+    host: str = BLENDER_HOST,
+    port: int = BLENDER_PORT,
+    timeout: float = BLENDER_TIMEOUT,
 ) -> dict[str, Any]:
     """
     Execute arbitrary Python code in Blender context via socket connection.
@@ -114,9 +119,9 @@ def execute_code(
 def execute_script_file(
     script_name: str,
     parameters: dict[str, Any] | None = None,
-    host: str = "localhost",
-    port: int = 9876,
-    timeout: float = 60.0,
+    host: str = BLENDER_HOST,
+    port: int = BLENDER_PORT,
+    timeout: float = BLENDER_TIMEOUT,
 ) -> dict[str, Any]:
     """
     Execute a Python script file from the scripts directory in Blender context via socket connection.

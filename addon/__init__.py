@@ -55,7 +55,7 @@ class BlenderMCPProperties(bpy.types.PropertyGroup):
 
 
 class BlenderMCPServer:
-    def __init__(self, host="localhost", port=9876):
+    def __init__(self, host="0.0.0.0", port=9876):
         self.host = host
         self.port = port
         self.running = False

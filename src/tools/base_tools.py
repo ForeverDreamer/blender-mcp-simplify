@@ -9,19 +9,25 @@
 
 import json
 import logging
+import os
+import sys
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
 
 from .utils import BlenderConnection, create_standard_response, send_command
 
+# 添加配置导入
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from config import BLENDER_HOST, BLENDER_PORT, BLENDER_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 
 def get_scene_info(
-    host: str = "localhost",
-    port: int = 9876,
-    timeout: float = 5.0,
+    host: str = BLENDER_HOST,
+    port: int = BLENDER_PORT,
+    timeout: float = BLENDER_TIMEOUT,
 ) -> dict[str, Any]:
     """
     从 Blender 获取当前场景信息。
@@ -76,9 +82,9 @@ def get_scene_info(
 
 
 def get_server_status(
-    host: str = "localhost",
-    port: int = 9876,
-    timeout: float = 5.0,
+    host: str = BLENDER_HOST,
+    port: int = BLENDER_PORT,
+    timeout: float = BLENDER_TIMEOUT,
 ) -> dict[str, Any]:
     """
     获取 Blender 服务器状态信息。
