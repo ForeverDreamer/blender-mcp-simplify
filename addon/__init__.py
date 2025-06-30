@@ -31,7 +31,9 @@ if src_dir not in sys.path:
 
 # Default scripts root directory path
 # This is the fallback path used when no custom path is configured in Blender properties
-DEFAULT_SCRIPTS_ROOT = "/home/doer/data_files/video_scripts"
+# Use Windows UNC path to access WSL files from Windows host
+# Updated path after refactoring - Python files moved to share/py/bl/
+DEFAULT_SCRIPTS_ROOT = "\\\\wsl$\\Ubuntu\\home\\doer\\data_files\\video_scripts\\share\\py\\bl"
 
 # Global variables for server management
 _server_instance = None
@@ -695,6 +697,8 @@ class BlenderMCPServer:
             
             # Always use the script_relative_path directly from scripts_root
             # This allows for subdirectories like "basic/script.py" or "advanced/script.py"
+            # Ensure consistent path separators
+            script_relative_path = script_relative_path.replace("/", "\\")
             script_path = os.path.join(scripts_root, script_relative_path)
 
             print(f"Looking for script at: {script_path}")
